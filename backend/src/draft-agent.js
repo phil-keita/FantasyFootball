@@ -334,7 +334,12 @@ Please use your tools to analyze the current draft state, evaluate available pla
         projectedPoints: p.projected_points,
         age: p.age,
         experience: p.years_exp,
-        injury_status: p.injury_status
+        injury_status: p.injury_status,
+        trending: {
+          hot_pickup: p.trending?.adds?.rank <= 20 ? true : false,
+          cold_drop: p.trending?.drops?.rank <= 20 ? true : false,
+          net_interest: p.trending?.net_interest || 0
+        }
       }));
     } catch (error) {
       return { error: `Failed to get available players: ${error.message}` };
@@ -373,6 +378,13 @@ Please use your tools to analyze the current draft state, evaluate available pla
         college: player.college,
         injury_status: player.injury_status,
         depth_chart_position: player.depth_chart_position,
+        trending: {
+          adds_rank: player.trending?.adds?.rank || null,
+          drops_rank: player.trending?.drops?.rank || null,
+          net_interest: player.trending?.net_interest || 0,
+          hot_pickup: player.trending?.adds?.rank <= 20 ? true : false,
+          cold_drop: player.trending?.drops?.rank <= 20 ? true : false
+        },
         stats_2023: player.stats_2023,
         fantasy_points_2023: player.fantasy_points_2023
       };

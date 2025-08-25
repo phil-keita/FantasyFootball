@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useDraftStore } from '../store/draftStore'
+import { useDraftStore } from '../../store/draftStore'
 import { PlayerCard } from './PlayerCard'
 import { Search, Filter } from 'lucide-react'
 

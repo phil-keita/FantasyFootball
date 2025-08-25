@@ -21,13 +21,12 @@ export class SleeperAPI {
     const dirs = [
       this.dataDir,
       `${this.dataDir}/players`,
-      `${this.dataDir}/adp`,
       `${this.dataDir}/stats`,
       `${this.dataDir}/stats/regular`,
       `${this.dataDir}/stats/postseason`,
       `${this.dataDir}/stats/preseason`,
-      `${this.dataDir}/leagues`,
-      `${this.dataDir}/drafts`
+      `${this.dataDir}/trending`,
+      `${this.dataDir}/state`
     ];
 
     for (const dir of dirs) {
@@ -119,53 +118,6 @@ export class SleeperAPI {
     }
   }
 
-  /**
-   * Get Average Draft Position data for different scoring formats
-   */
-  async getADP(format = 'standard', saveToFile = true) {
-    const formatMap = {
-      'standard': '/players/nfl/adp',
-      'ppr': '/players/nfl/adp/ppr',
-      'half_ppr': '/players/nfl/adp/half_ppr',
-      '2qb': '/players/nfl/adp/2qb',
-      'superflex': '/players/nfl/adp/2qb' // Alias for 2qb
-    };
-
-    const endpoint = formatMap[format];
-    if (!endpoint) {
-      throw new Error(`Invalid ADP format: ${format}. Valid formats: ${Object.keys(formatMap).join(', ')}`);
-    }
-
-    try {
-      const adp = await this.makeRequest(endpoint);
-      
-      if (saveToFile) {
-        await this.saveData(`${this.dataDir}/adp/adp_${format}.json`, adp);
-      }
-      
-      console.log(`📈 Fetched ADP data for ${format} format (${Object.keys(adp).length} players)`);
-      return adp;
-    } catch (error) {
-      console.error(`❌ ADP endpoint may be temporarily unavailable for ${format}:`, error.message);
-      console.log(`⚠️ Continuing without ADP data - you can retry later`);
-      return null;
-    }
-  }
-
-  /**
-   * Get all ADP formats at once
-   */
-  async getAllADP(saveToFile = true) {
-    const formats = ['standard', 'ppr', 'half_ppr', '2qb'];
-    const adpData = {};
-
-    for (const format of formats) {
-      adpData[format] = await this.getADP(format, saveToFile);
-    }
-
-    return adpData;
-  }
-
   // ============================================================================
   // STATISTICS ENDPOINTS
   // ============================================================================
@@ -230,6 +182,55 @@ export class SleeperAPI {
   // ============================================================================
 
   /**
+   * Get trending players (adds/drops in past 24 hours)
+   */
+  async getTrendingPlayers(type = 'add', lookbackHours = 24, limit = 50, saveToFile = true) {
+    try {
+      const endpoint = `/players/nfl/trending/${type}?lookback_hours=${lookbackHours}&limit=${limit}`;
+      const trending = await this.makeRequest(endpoint);
+      
+      if (saveToFile) {
+        const timestamp = new Date().toISOString().split('T')[0];
+        await this.saveData(`${this.dataDir}/trending/trending_${type}_${timestamp}.json`, {
+          type: type,
+          lookback_hours: lookbackHours,
+          limit: limit,
+          fetched_at: new Date().toISOString(),
+          data: trending
+        });
+      }
+      
+      console.log(`📈 Fetched ${trending.length} trending ${type} players`);
+      return trending;
+    } catch (error) {
+      console.error(`❌ Failed to fetch trending ${type} players:`, error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Get current NFL season state
+   */
+  async getNFLState(saveToFile = true) {
+    try {
+      const state = await this.makeRequest('/state/nfl');
+      
+      if (saveToFile) {
+        await this.saveData(`${this.dataDir}/state/nfl_state.json`, {
+          ...state,
+          fetched_at: new Date().toISOString()
+        });
+      }
+      
+      console.log(`🏈 Fetched NFL state: Week ${state.week}, ${state.season_type} season ${state.season}`);
+      return state;
+    } catch (error) {
+      console.error('❌ Failed to fetch NFL state:', error.message);
+      return null;
+    }
+  }
+
+  /**
    * Get NFL news
    */
   async getNFLNews(saveToFile = true) {
@@ -265,7 +266,6 @@ export class SleeperAPI {
     const startTime = Date.now();
     const results = {
       players: null,
-      adp: {},
       stats: {},
       news: null
     };
@@ -274,9 +274,8 @@ export class SleeperAPI {
     console.log('📋 Fetching player data...');
     results.players = await this.getAllPlayers();
 
-    // 2. Fetch all ADP formats
-    console.log('\n📈 Fetching ADP data...');
-    results.adp = await this.getAllADP();
+    // 2. Skip ADP data (not available in Sleeper API)
+    console.log('\n⚠️ Skipping ADP data - Not available in public Sleeper API...');
 
     // 3. Fetch current season stats
     console.log('\n📊 Fetching current season statistics...');
@@ -296,7 +295,18 @@ export class SleeperAPI {
       }
     }
 
-    // 5. Fetch news
+    // 5. Fetch trending players data
+    console.log('\n📈 Fetching trending players...');
+    results.trending = {
+      adds: await this.getTrendingPlayers('add', 24, 50),
+      drops: await this.getTrendingPlayers('drop', 24, 50)
+    };
+
+    // 6. Fetch NFL season state
+    console.log('\n🏈 Fetching NFL season state...');
+    results.nfl_state = await this.getNFLState();
+
+    // 7. Fetch news
     console.log('\n📰 Fetching NFL news...');
     results.news = await this.getNFLNews();
 

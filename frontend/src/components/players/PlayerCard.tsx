@@ -1,4 +1,4 @@
-import { useDraftStore, Player } from '../store/draftStore'
+import { useDraftStore, Player } from '../../store/draftStore'
 import { Users, TrendingUp } from 'lucide-react'
 
 interface PlayerCardProps {

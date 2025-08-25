@@ -32,14 +32,33 @@ export interface DraftPick {
   player?: Player
 }
 
+export interface DraftConfig {
+  numberOfTeams: number
+  playerPickNumber: number
+  leagueSettings: {
+    qb: number
+    rb: number
+    wr: number
+    te: number
+    flex: number
+    def: number
+    k: number
+    bench: number
+  }
+  customRules: string
+  leagueName: string
+}
+
 interface DraftStore {
   // Draft Settings
+  draftConfig: DraftConfig | null
   numTeams: number
   numRounds: number
   currentPick: number
   currentRound: number
   currentTeam: number
   isUserTurn: boolean
+  isDraftStarted: boolean
   
   // Teams and Players
   teams: Team[]
@@ -53,11 +72,13 @@ interface DraftStore {
   sortBy: 'adp' | 'projectedPoints' | 'name'
   
   // LLM Recommendations
-  recommendations: Player[]
+  recommendations: string | null
+  recommendationReasoning: string | null
   isLoadingRecommendations: boolean
   
   // Actions
-  initializeDraft: (numTeams: number, teamNames: string[], userTeamIndex: number) => void
+  setDraftConfig: (config: DraftConfig) => void
+  initializeDraft: (config: DraftConfig) => void
   setPlayers: (players: Player[]) => void
   draftPlayer: (playerId: string, teamId?: string) => void
   undoDraft: () => void
@@ -72,12 +93,14 @@ export const useDraftStore = create<DraftStore>()(
   devtools(
     (set, get) => ({
       // Initial state
+      draftConfig: null,
       numTeams: 12,
       numRounds: 16,
       currentPick: 1,
       currentRound: 1,
       currentTeam: 1,
       isUserTurn: false,
+      isDraftStarted: false,
       
       teams: [],
       allPlayers: [],
@@ -88,41 +111,70 @@ export const useDraftStore = create<DraftStore>()(
       searchQuery: '',
       sortBy: 'adp',
       
-      recommendations: [],
+      recommendations: null,
+      recommendationReasoning: null,
       isLoadingRecommendations: false,
       
       // Actions
-      initializeDraft: (numTeams, teamNames, userTeamIndex) => {
+      setDraftConfig: (config) => {
+        set({ draftConfig: config })
+      },
+      
+      initializeDraft: (config) => {
+        const { numberOfTeams, playerPickNumber, leagueSettings } = config
+        const safeLeagueSettings = leagueSettings || {
+          qb: 1, rb: 2, wr: 2, te: 1, flex: 1, def: 1, k: 1, bench: 6
+        }
+        const totalRosterSpots = Object.values(safeLeagueSettings).reduce((sum, count) => sum + count, 0)
+        
+        const teamNames = Array.from({ length: numberOfTeams }, (_, i) => 
+          i === playerPickNumber - 1 ? 'Your Team' : `Team ${i + 1}`
+        )
+        
         const teams: Team[] = teamNames.map((name, index) => ({
           id: `team-${index + 1}`,
           name,
           owner: name,
           roster: [],
-          isUserTeam: index === userTeamIndex
+          isUserTeam: index === playerPickNumber - 1
         }))
         
         const draftBoard: DraftPick[] = []
-        for (let round = 1; round <= 16; round++) {
-          for (let pick = 1; pick <= numTeams; pick++) {
-            const teamIndex = round % 2 === 1 ? pick - 1 : numTeams - pick
+        for (let round = 1; round <= totalRosterSpots; round++) {
+          for (let pick = 1; pick <= numberOfTeams; pick++) {
+            const teamIndex = round % 2 === 1 ? pick - 1 : numberOfTeams - pick
             draftBoard.push({
               round,
               pick,
-              overall: (round - 1) * numTeams + pick,
+              overall: (round - 1) * numberOfTeams + pick,
               teamId: teams[teamIndex].id
             })
           }
         }
         
+        // Calculate initial draft state (starting at pick 1)
+        const currentOverallPick = 1
+        const currentRound = Math.ceil(currentOverallPick / numberOfTeams)
+        const currentPickInRound = ((currentOverallPick - 1) % numberOfTeams) + 1
+        const currentTeamIndex = currentRound % 2 === 1 
+          ? currentPickInRound - 1 
+          : numberOfTeams - currentPickInRound
+        const isUserTurn = teams[currentTeamIndex].isUserTeam
+        
         set({
-          numTeams,
-          numRounds: 16,
+          draftConfig: {
+            ...config,
+            leagueSettings: safeLeagueSettings
+          },
+          numTeams: numberOfTeams,
+          numRounds: totalRosterSpots,
           teams,
           draftBoard,
-          currentPick: 1,
-          currentRound: 1,
-          currentTeam: 1,
-          isUserTurn: teams[0].isUserTeam
+          currentPick: currentOverallPick,
+          currentRound,
+          currentTeam: currentTeamIndex + 1,
+          isUserTurn,
+          isDraftStarted: true
         })
       },
       
@@ -240,30 +292,51 @@ export const useDraftStore = create<DraftStore>()(
       
       getRecommendations: async () => {
         const state = get()
+        if (!state.draftConfig) return
+        
         set({ isLoadingRecommendations: true })
         
         try {
-          const response = await fetch('/api/recommendations', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              availablePlayers: state.availablePlayers,
-              userTeam: state.teams.find(t => t.isUserTeam),
-              currentRound: state.currentRound,
-              currentPick: state.currentPick,
-              draftedPlayers: state.allPlayers.filter(p => p.isDrafted),
-            }),
+          // Import the API service
+          const { apiService } = await import('../services/api')
+          
+          // Prepare draft state for the API
+          const draftedPlayers = state.allPlayers
+            .filter(p => p.isDrafted)
+            .map(p => ({
+              playerName: p.name,
+              team: p.team,
+              position: p.position,
+              pickNumber: p.draftPosition || 0,
+              draftedByTeam: p.draftedBy || ''
+            }))
+          
+          const userTeam = state.teams.find(t => t.isUserTeam)
+          
+          const response = await apiService.getDraftRecommendations({
+            draftedPlayers,
+            currentPick: state.currentPick,
+            userTeam: userTeam?.name || 'Your Team',
+            leagueSettings: {
+              teams: state.numTeams,
+              format: 'PPR', // Could be derived from config
+              rounds: state.numRounds
+            }
           })
           
-          if (response.ok) {
-            const recommendations = await response.json()
-            set({ recommendations, isLoadingRecommendations: false })
-          }
+          set({ 
+            recommendations: typeof response.recommendations === 'string' ? response.recommendations : JSON.stringify(response.recommendations),
+            recommendationReasoning: response.reasoning || null,
+            isLoadingRecommendations: false 
+          })
+          
         } catch (error) {
           console.error('Failed to get recommendations:', error)
-          set({ isLoadingRecommendations: false })
+          set({ 
+            recommendations: 'Unable to get AI recommendations at this time.',
+            recommendationReasoning: 'Please check backend connection.',
+            isLoadingRecommendations: false 
+          })
         }
       },
       
@@ -291,8 +364,3 @@ export const useDraftStore = create<DraftStore>()(
     }
   )
 )
-
-// Provider component for React
-export const DraftProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  return <>{children}</>
-}

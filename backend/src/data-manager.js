@@ -29,9 +29,7 @@ export class DataManager {
       this.fantasyDataDir, 
       this.processedDir,
       `${this.sleeperDir}/players`,
-      `${this.sleeperDir}/adp`,
       `${this.sleeperDir}/stats`,
-      `${this.sleeperDir}/leagues`,
       `${this.processedDir}/combined`,
       `${this.processedDir}/analysis`
     ];
@@ -61,10 +59,9 @@ export class DataManager {
     
     const results = {
       players: null,
-      adp: {},
       stats: {},
-      leagues: [],
-      drafts: []
+      trending: {},
+      nfl_state: null
     };
 
     try {
@@ -72,12 +69,8 @@ export class DataManager {
       console.log('📋 Fetching player data...');
       results.players = await this.sleeperAPI.getAllPlayers();
 
-      // 2. ADP Data (all formats)
-      console.log('\n📈 Fetching ADP data...');
-      const adpFormats = ['standard', 'ppr', 'half_ppr', '2qb'];
-      for (const format of adpFormats) {
-        results.adp[format] = await this.sleeperAPI.getADP(format);
-      }
+      // 2. ADP Data - Note: Sleeper API does not provide ADP endpoints
+      console.log('\n⚠️ Skipping ADP data - Not available in Sleeper API...');
 
       // 3. Statistics
       console.log('\n📊 Fetching statistics...');
@@ -92,7 +85,16 @@ export class DataManager {
         }
       }
 
-      // 4. News (if available)
+      // 4. Trending Players (hot/cold analysis)
+      console.log('\n📈 Fetching trending players...');
+      results.trending.adds = await this.sleeperAPI.getTrendingPlayers('add', 24, 50);
+      results.trending.drops = await this.sleeperAPI.getTrendingPlayers('drop', 24, 50);
+
+      // 5. NFL Season State  
+      console.log('\n🏈 Fetching NFL season state...');
+      results.nfl_state = await this.sleeperAPI.getNFLState();
+
+      // 6. News (if available)
       console.log('\n📰 Fetching news...');
       results.news = await this.sleeperAPI.getNFLNews();
 
@@ -217,11 +219,39 @@ export class DataManager {
     try {
       // Load Sleeper data
       const sleeperPlayers = await this.loadData(`${this.sleeperDir}/players/players.json`);
-      const sleeperADP = await this.loadData(`${this.sleeperDir}/adp/adp_ppr.json`);
+      // Note: Sleeper API does not provide ADP data - using null
+      const sleeperADP = null;
       const sleeper2024Stats = await this.loadData(`${this.sleeperDir}/stats/regular/season_2024.json`);
+      
+      // Load trending data (latest file)
+      const today = new Date().toISOString().split('T')[0];
+      const trendingAdds = await this.loadData(`${this.sleeperDir}/trending/trending_add_${today}.json`);
+      const trendingDrops = await this.loadData(`${this.sleeperDir}/trending/trending_drop_${today}.json`);
 
       // Load processed FantasyData
       const fantasyDataCSVs = await this.loadData(`${this.processedDir}/fantasy-data-csvs.json`);
+
+      // Create trending lookup maps
+      const trendingAddsMap = {};
+      const trendingDropsMap = {};
+      
+      if (trendingAdds?.data) {
+        trendingAdds.data.forEach((item, index) => {
+          trendingAddsMap[item.player_id] = {
+            rank: index + 1,
+            count: item.count
+          };
+        });
+      }
+      
+      if (trendingDrops?.data) {
+        trendingDrops.data.forEach((item, index) => {
+          trendingDropsMap[item.player_id] = {
+            rank: index + 1,
+            count: item.count
+          };
+        });
+      }
 
       if (!sleeperPlayers) {
         throw new Error('Sleeper player data not found. Run fetch-sleeper-data first.');
@@ -251,7 +281,15 @@ export class DataManager {
             adp_change: sleeperADP?.[playerId]?.change_24h || null,
             
             // Sleeper 2024 stats
+            // Sleeper stats
             sleeper_stats_2024: sleeper2024Stats?.[playerId] || null,
+            
+            // Trending data (adds/drops popularity)
+            trending: {
+              adds: trendingAddsMap[playerId] || null,
+              drops: trendingDropsMap[playerId] || null,
+              net_interest: (trendingAddsMap[playerId]?.count || 0) - (trendingDropsMap[playerId]?.count || 0)
+            },
             
             // Placeholder for FantasyData enrichment
             fantasy_data: {},

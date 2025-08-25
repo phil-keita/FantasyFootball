@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { apiService, ApiPlayer, convertApiPlayerToFrontendPlayer } from '../services/api'
+import { apiService, convertApiPlayerToFrontendPlayer } from '../services/api'
 import { useDraftStore } from '../store/draftStore'
 
 export function usePlayerData() {
@@ -93,41 +93,5 @@ export function usePlayerData() {
     searchPlayers,
     getPlayersByPosition,
     checkBackendHealth,
-  }
-}
-
-export function useDraftRecommendations() {
-  const [recommendations, setRecommendations] = useState<any[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const getRecommendations = useCallback(async (data: {
-    currentRoster: any[]
-    availablePlayers: any[]
-    round: number
-    pick: number
-  }) => {
-    setIsLoading(true)
-    setError(null)
-
-    try {
-      const recs = await apiService.getDraftRecommendations(data)
-      setRecommendations(recs)
-      return recs
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to get recommendations'
-      setError(errorMessage)
-      setRecommendations([])
-      return []
-    } finally {
-      setIsLoading(false)
-    }
-  }, [])
-
-  return {
-    recommendations,
-    isLoading,
-    error,
-    getRecommendations,
   }
 }

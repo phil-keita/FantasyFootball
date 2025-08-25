@@ -1,5 +1,4 @@
-#!/usr/bin/env node
-
+// Unified Data Fetcher for Fantasy Football Draft Assistant
 import { DataManager } from './data-manager.js';
 
 /**

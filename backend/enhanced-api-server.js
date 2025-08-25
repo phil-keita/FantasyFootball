@@ -1,5 +1,4 @@
-#!/usr/bin/env node
-
+// Fantasy Football Draft Assistant API Server
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -144,7 +143,7 @@ app.get('/api/players', async (req, res) => {
     if (search) {
       const searchTerm = search.toLowerCase();
       results = results.filter(p => 
-        p.name.toLowerCase().includes(searchTerm)
+        (p.name || '').toLowerCase().includes(searchTerm)
       );
     }
     
@@ -153,7 +152,7 @@ app.get('/api/players', async (req, res) => {
       if (a.adp && b.adp) return a.adp - b.adp;
       if (a.adp && !b.adp) return -1;
       if (!a.adp && b.adp) return 1;
-      return a.name.localeCompare(b.name);
+      return (a.name || '').localeCompare(b.name || '');
     });
     
     // Apply limit
