@@ -216,7 +216,7 @@ export class DataManager {
 
     try {
       // Load Sleeper data
-      const sleeperPlayers = await this.loadData(`${this.sleeperDir}/players.json`);
+      const sleeperPlayers = await this.loadData(`${this.sleeperDir}/players/players.json`);
       const sleeperADP = await this.loadData(`${this.sleeperDir}/adp/adp_ppr.json`);
       const sleeper2024Stats = await this.loadData(`${this.sleeperDir}/stats/regular/season_2024.json`);
 

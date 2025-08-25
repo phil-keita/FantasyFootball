@@ -1,14 +1,25 @@
 #!/usr/bin/env node
 
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { DataManager } from './src/data-manager.js';
+import { DraftAgent } from './src/draft-agent.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Initialize data manager
+// Initialize data manager and draft agent
 const dataManager = new DataManager();
+let draftAgent = null;
+
+// Initialize draft agent if OpenAI API key is available
+try {
+  draftAgent = new DraftAgent();
+  console.log('🤖 Draft Agent initialized successfully');
+} catch (error) {
+  console.log('⚠️ Draft Agent not available:', error.message);
+}
 
 // Middleware
 app.use(cors());
@@ -20,6 +31,84 @@ app.get('/health', (req, res) => {
     status: 'healthy', 
     timestamp: new Date().toISOString(),
     service: 'Fantasy Football Draft Assistant API'
+  });
+});
+
+// ============================================================================
+// DRAFT AGENT ENDPOINTS
+// ============================================================================
+
+// Get AI-powered draft recommendations
+app.post('/api/draft/recommend', async (req, res) => {
+  try {
+    if (!draftAgent) {
+      return res.status(503).json({
+        error: 'Draft Agent not available',
+        message: 'OpenAI API key not configured. Set OPENAI_API_KEY environment variable.',
+        fallback: 'Use /api/analysis/summary for basic recommendations'
+      });
+    }
+
+    const draftState = req.body;
+    
+    // Validate draft state
+    if (!draftState.draftedPlayers || !Array.isArray(draftState.draftedPlayers)) {
+      return res.status(400).json({
+        error: 'Invalid draft state',
+        message: 'draftedPlayers array is required'
+      });
+    }
+
+    if (!draftState.currentPick || !draftState.userTeam) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'currentPick and userTeam are required'
+      });
+    }
+
+    console.log(`🤖 Getting draft recommendation for pick ${draftState.currentPick}`);
+    
+    const recommendation = await draftAgent.getDraftRecommendation(draftState);
+    
+    res.json({
+      success: true,
+      currentPick: draftState.currentPick,
+      userTeam: draftState.userTeam,
+      recommendation: recommendation.recommendations,
+      toolsUsed: recommendation.toolsUsed,
+      reasoning: recommendation.reasoning,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Draft recommendation error:', error);
+    res.status(500).json({
+      error: 'Failed to get draft recommendation',
+      message: error.message,
+      fallback: 'Try /api/analysis/summary for basic analysis'
+    });
+  }
+});
+
+// Get draft agent status and capabilities
+app.get('/api/draft/agent-status', (req, res) => {
+  res.json({
+    available: !!draftAgent,
+    capabilities: draftAgent ? [
+      'AI-powered draft recommendations',
+      'Real-time draft state analysis', 
+      'Positional scarcity evaluation',
+      'Sleeper identification',
+      'Player-specific insights',
+      'League context adaptation'
+    ] : [],
+    tools: draftAgent ? draftAgent.tools.map(t => t.function.name) : [],
+    requirements: !draftAgent ? ['OPENAI_API_KEY environment variable'] : [],
+    fallbacks: [
+      'GET /api/analysis/summary - Basic draft analysis',
+      'GET /api/players - Player data access',
+      'GET /api/rankings/:position - Position rankings'
+    ]
   });
 });
 
@@ -358,6 +447,8 @@ app.listen(PORT, () => {
   console.log(`🏈 Fantasy Football Draft Assistant API`);
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📊 Available endpoints:`);
+  console.log(`   🤖 POST /api/draft/recommend`);
+  console.log(`   🤖 GET  /api/draft/agent-status`);
   console.log(`   GET  /api/players`);
   console.log(`   GET  /api/players/:id`);
   console.log(`   GET  /api/players/search/:query`);
@@ -367,5 +458,6 @@ app.listen(PORT, () => {
   console.log(`   GET  /api/fantasy-data/:category`);
   console.log(`   GET  /api/analysis/summary`);
   console.log(`   POST /api/data/fetch`);
-  console.log(`\n💡 Try: http://localhost:${PORT}/api/players?position=QB&limit=10`);
+  console.log(`\n🤖 Draft Agent: ${draftAgent ? '✅ Ready' : '❌ Not Available (Set OPENAI_API_KEY)'}`);
+  console.log(`💡 Try: http://localhost:${PORT}/api/draft/agent-status`);
 });
