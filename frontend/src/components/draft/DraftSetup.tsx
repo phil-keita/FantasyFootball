@@ -1,5 +1,7 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import { DraftConfig } from '../../store/draftStore'
+import { DraftService } from '../../services/draftService'
 
 interface DraftSetupProps {
   onStartDraft: (config: DraftConfig) => void
@@ -29,6 +31,10 @@ const COMMON_LAYOUTS = {
 }
 
 export const DraftSetup: React.FC<DraftSetupProps> = ({ onStartDraft }) => {
+  const { draftId } = useParams()
+  const navigate = useNavigate()
+  const isEditMode = Boolean(draftId)
+  
   const [config, setConfig] = useState<DraftConfig>({
     numberOfTeams: 12,
     playerPickNumber: 1,
@@ -38,6 +44,43 @@ export const DraftSetup: React.FC<DraftSetupProps> = ({ onStartDraft }) => {
   })
   const [selectedLayout, setSelectedLayout] = useState('standard')
   const [showCustomPositions, setShowCustomPositions] = useState(false)
+  const [isCreatingDraft, setIsCreatingDraft] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+
+  // Load draft data if in edit mode
+  useEffect(() => {
+    if (isEditMode && draftId) {
+      loadDraftForEdit(draftId)
+    }
+  }, [isEditMode, draftId])
+
+  const loadDraftForEdit = async (draftId: string) => {
+    setIsLoading(true)
+    try {
+      const draft = await DraftService.getDraft(draftId)
+      setConfig(draft.config)      // Determine which layout matches the current config
+      const matchingLayout = Object.entries(COMMON_LAYOUTS).find(([, layout]) => {
+        const configPositions = draft.config.leagueSettings
+        const layoutPositions = layout.positions
+        return Object.keys(configPositions).every(pos => 
+          configPositions[pos as keyof typeof configPositions] === layoutPositions[pos as keyof typeof layoutPositions]
+        )
+      })
+      
+      if (matchingLayout) {
+        setSelectedLayout(matchingLayout[0])
+        setShowCustomPositions(false)
+      } else {
+        setSelectedLayout('custom')
+        setShowCustomPositions(true)
+      }
+    } catch (error) {
+      console.error('Failed to load draft for editing:', error)
+      navigate('/drafts') // Redirect back if draft not found
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const handleLayoutChange = (layout: string) => {
     setSelectedLayout(layout)
@@ -62,7 +105,7 @@ export const DraftSetup: React.FC<DraftSetupProps> = ({ onStartDraft }) => {
     }))
   }
 
-  const handleStartDraft = () => {
+  const handleStartDraft = async () => {
     // Validate configuration
     if (config.numberOfTeams < 4 || config.numberOfTeams > 20) {
       alert('Number of teams must be between 4 and 20')
@@ -73,11 +116,42 @@ export const DraftSetup: React.FC<DraftSetupProps> = ({ onStartDraft }) => {
       return
     }
     
-    onStartDraft(config)
+    setIsCreatingDraft(true)
+    try {
+      if (isEditMode && draftId) {
+        // Update existing draft
+        await DraftService.updateDraft(draftId, {
+          draftName: config.leagueName,
+          config: config
+        })
+        // Navigate to the updated draft
+        navigate(`/draft/${draftId}`)
+      } else {
+        // Create new draft
+        await onStartDraft(config)
+      }
+    } catch (error) {
+      console.error(`Failed to ${isEditMode ? 'update' : 'create'} draft:`, error)
+      alert(`Failed to ${isEditMode ? 'update' : 'create'} draft. Please try again.`)
+    } finally {
+      setIsCreatingDraft(false)
+    }
   }
 
   const totalRosterSpots = Object.values(config.leagueSettings).reduce((sum, count) => sum + count, 0)
   const totalRounds = totalRosterSpots
+
+  // Show loading state for edit mode
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-8 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-4 text-lg font-medium text-gray-700">Loading draft...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -85,10 +159,13 @@ export const DraftSetup: React.FC<DraftSetupProps> = ({ onStartDraft }) => {
         <div className="bg-white rounded-lg shadow-lg p-8">
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-gray-900 mb-2">
-              🏈 Fantasy Football Draft Setup
+              🏈 {isEditMode ? 'Edit Draft Settings' : 'Fantasy Football Draft Setup'}
             </h1>
             <p className="text-gray-600">
-              Configure your draft settings to get personalized AI recommendations
+              {isEditMode 
+                ? 'Update your draft configuration and settings' 
+                : 'Configure your draft settings to get personalized AI recommendations'
+              }
             </p>
           </div>
 
@@ -227,19 +304,45 @@ export const DraftSetup: React.FC<DraftSetupProps> = ({ onStartDraft }) => {
             </div>
           </div>
 
-          {/* Start Draft Button */}
+          {/* Submit Button */}
           <div className="mt-8 pt-6 border-t border-gray-200">
             <div className="flex items-center justify-between">
               <div className="text-sm text-gray-600">
                 <p>Draft will have {totalRounds} rounds with {config.numberOfTeams} teams</p>
                 <p>You'll pick at position #{config.playerPickNumber} in each round</p>
+                {isEditMode && <p className="text-blue-600 mt-1">💡 Changes will be saved to your existing draft</p>}
               </div>
-              <button
-                onClick={handleStartDraft}
-                className="bg-green-600 text-white px-8 py-3 rounded-lg hover:bg-green-700 font-medium text-lg"
-              >
-                Start Draft 🚀
-              </button>
+              <div className="flex space-x-3">
+                {isEditMode && (
+                  <button
+                    onClick={() => navigate('/drafts')}
+                    disabled={isCreatingDraft}
+                    className="px-6 py-3 rounded-lg font-medium text-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  onClick={handleStartDraft}
+                  disabled={isCreatingDraft}
+                  className={`px-8 py-3 rounded-lg font-medium text-lg transition-colors ${
+                    isCreatingDraft 
+                      ? 'bg-gray-400 cursor-not-allowed' 
+                      : isEditMode
+                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                        : 'bg-green-600 text-white hover:bg-green-700'
+                  }`}
+                >
+                  {isCreatingDraft ? (
+                    <>
+                      <span className="inline-block animate-spin mr-2">⏳</span>
+                      {isEditMode ? 'Updating Draft...' : 'Creating Draft...'}
+                    </>
+                  ) : (
+                    isEditMode ? 'Save Changes 📝' : 'Start Draft 🚀'
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -62,7 +62,6 @@ async function createDraftsCollection() {
       { key: 'currentPick', type: 'integer', min: 1, max: 999, required: true },
       { key: 'currentRound', type: 'integer', min: 1, max: 50, required: true },
       { key: 'currentTeam', type: 'integer', min: 1, max: 50, required: true },
-      { key: 'isDraftStarted', type: 'boolean', required: true, default: false },
       { key: 'teams', type: 'string', size: 65535, required: true },
       { key: 'draftBoard', type: 'string', size: 65535, required: true }
     ]
@@ -135,7 +134,6 @@ async function createDraftsCollection() {
         { key: 'currentPick', type: 'integer', min: 1, max: 999, required: true },
         { key: 'currentRound', type: 'integer', min: 1, max: 50, required: true },
         { key: 'currentTeam', type: 'integer', min: 1, max: 50, required: true },
-        { key: 'isDraftStarted', type: 'boolean', required: true, default: false },
         { key: 'teams', type: 'string', size: 65535, required: true },
         { key: 'draftBoard', type: 'string', size: 65535, required: true }
       ]

@@ -61,7 +61,6 @@ export interface AppwriteDraft {
   currentPick: number
   currentRound: number
   currentTeam: number
-  isDraftStarted: boolean
   
   // Teams and Rosters
   teams: Array<{

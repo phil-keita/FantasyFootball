@@ -4,21 +4,51 @@ import { Query } from 'appwrite'
 
 export class DraftService {
   
+  // Helper method to parse documents from Appwrite format to our interface
+  private static parseDocument(doc: any): AppwriteDraft {
+    return {
+      $id: doc.$id,
+      $createdAt: doc.$createdAt,
+      $updatedAt: doc.$updatedAt,
+      userId: doc.userId,
+      draftName: doc.draftName,
+      status: doc.status,
+      config: typeof doc.config === 'string' ? JSON.parse(doc.config) : doc.config,
+      currentPick: doc.currentPick,
+      currentRound: doc.currentRound,
+      currentTeam: doc.currentTeam,
+      teams: typeof doc.teams === 'string' ? JSON.parse(doc.teams) : doc.teams,
+      draftBoard: typeof doc.draftBoard === 'string' ? JSON.parse(doc.draftBoard) : doc.draftBoard
+    }
+  }
+
+  // Helper method to serialize draft data for storage
+  private static serializeDocument(draftData: Partial<AppwriteDraft>) {
+    const serialized: any = { ...draftData }
+    
+    if (draftData.config) {
+      serialized.config = JSON.stringify(draftData.config)
+    }
+    if (draftData.teams) {
+      serialized.teams = JSON.stringify(draftData.teams)
+    }
+    if (draftData.draftBoard) {
+      serialized.draftBoard = JSON.stringify(draftData.draftBoard)
+    }
+    
+    return serialized
+  }
+  
   // Create a new draft
-  static async createDraft(userId: string, draftData: Omit<AppwriteDraft, '$id' | '$createdAt' | '$updatedAt' | 'userId'>): Promise<AppwriteDraft> {
+  static async createDraft(draftData: Omit<AppwriteDraft, '$id' | '$createdAt' | '$updatedAt'>) {
     try {
-      const draft = await databases.createDocument(
+      const doc = await databases.createDocument(
         DATABASE_ID,
         DRAFTS_COLLECTION_ID,
-        generateId(),
-        {
-          userId,
-          ...draftData
-        }
+        'unique()',
+        this.serializeDocument(draftData)
       )
-
-      console.log('Draft created:', draft)
-      return draft as unknown as AppwriteDraft
+      return this.parseDocument(doc)
     } catch (error) {
       console.error('Error creating draft:', error)
       throw error
@@ -33,12 +63,10 @@ export class DraftService {
         DRAFTS_COLLECTION_ID,
         [
           Query.equal('userId', userId),
-          Query.orderDesc('$createdAt'),
-          Query.limit(50) // Limit to 50 most recent drafts
+          Query.orderDesc('$createdAt')
         ]
       )
-
-      return response.documents as unknown as AppwriteDraft[]
+      return response.documents.map(doc => this.parseDocument(doc))
     } catch (error) {
       console.error('Error getting user drafts:', error)
       throw error
@@ -48,13 +76,12 @@ export class DraftService {
   // Get a specific draft by ID
   static async getDraft(draftId: string): Promise<AppwriteDraft> {
     try {
-      const draft = await databases.getDocument(
+      const doc = await databases.getDocument(
         DATABASE_ID,
         DRAFTS_COLLECTION_ID,
         draftId
       )
-
-      return draft as unknown as AppwriteDraft
+      return this.parseDocument(doc)
     } catch (error) {
       console.error('Error getting draft:', error)
       throw error
@@ -62,17 +89,15 @@ export class DraftService {
   }
 
   // Update an existing draft
-  static async updateDraft(draftId: string, updates: Partial<Omit<AppwriteDraft, '$id' | '$createdAt' | '$updatedAt'>>): Promise<AppwriteDraft> {
+  static async updateDraft(draftId: string, updates: Partial<AppwriteDraft>): Promise<AppwriteDraft> {
     try {
-      const draft = await databases.updateDocument(
+      const doc = await databases.updateDocument(
         DATABASE_ID,
         DRAFTS_COLLECTION_ID,
         draftId,
-        updates
+        this.serializeDocument(updates)
       )
-
-      console.log('Draft updated:', draft)
-      return draft as unknown as AppwriteDraft
+      return this.parseDocument(doc)
     } catch (error) {
       console.error('Error updating draft:', error)
       throw error
@@ -87,7 +112,6 @@ export class DraftService {
         DRAFTS_COLLECTION_ID,
         draftId
       )
-      console.log('Draft deleted:', draftId)
     } catch (error) {
       console.error('Error deleting draft:', error)
       throw error

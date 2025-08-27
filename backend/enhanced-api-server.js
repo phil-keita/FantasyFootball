@@ -171,6 +171,61 @@ app.get('/api/players', async (req, res) => {
   }
 });
 
+// Get active players only (server-side filtered)
+app.get('/api/players/active', async (req, res) => {
+  try {
+    console.log('📋 Getting active players only (using live Sleeper API)...');
+    
+    // Get live player data from Sleeper API and filter for active players
+    const sleeperAPI = dataManager.sleeperAPI;
+    const allPlayerData = await sleeperAPI.getAllPlayers(false); // Don't save to avoid overwriting cache
+    
+    if (!allPlayerData) {
+      throw new Error('Failed to fetch player data from Sleeper API');
+    }
+    
+    // Filter for active players and transform to consistent format
+    const activePlayers = Object.entries(allPlayerData)
+      .filter(([id, player]) => player.active)
+      .map(([id, player]) => ({
+        sleeper_id: id,
+        name: player.full_name,
+        first_name: player.first_name,
+        last_name: player.last_name,
+        position: player.position,
+        team: player.team,
+        age: player.age,
+        years_exp: player.years_exp,
+        college: player.college,
+        height: player.height,
+        weight: player.weight,
+        status: player.status,
+        injury_status: player.injury_status,
+        active: player.active,
+        search_rank: player.search_rank,
+        fantasy_positions: player.fantasy_positions
+      }));
+    
+    console.log(`📋 Found ${activePlayers.length} active players`);
+    
+    res.json({
+      players: activePlayers,
+      count: activePlayers.length,
+      activeOnly: true,
+      filters: req.query,
+      source: 'live-sleeper-api (active filtered)',
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('Error fetching active players:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch active players',
+      message: error.message 
+    });
+  }
+});
+
 // Get specific player by ID
 app.get('/api/players/:id', async (req, res) => {
   try {
@@ -422,6 +477,7 @@ app.use((req, res) => {
     error: 'Endpoint not found',
     available_endpoints: {
       players: '/api/players',
+      players_active: '/api/players/active',
       search: '/api/players/search/:query',
       rankings: '/api/rankings/:position',
       sleeper: '/api/sleeper/players',
@@ -449,6 +505,7 @@ app.listen(PORT, () => {
   console.log(`   🤖 POST /api/draft/recommend`);
   console.log(`   🤖 GET  /api/draft/agent-status`);
   console.log(`   GET  /api/players`);
+  console.log(`   GET  /api/players/active`);
   console.log(`   GET  /api/players/:id`);
   console.log(`   GET  /api/players/search/:query`);
   console.log(`   GET  /api/rankings/:position`);

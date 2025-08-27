@@ -49,17 +49,16 @@ export const MyDraftsPage: React.FC = () => {
       // Initialize the draft with the stored data
       initializeDraft(draft.config)
       
-      // Navigate to the draft board
-      navigate('/draft')
+      // Navigate to the draft board with the draft ID
+      navigate(`/draft/${draft.$id}`)
     } catch (error) {
       console.error('Error starting draft:', error)
     }
   }
 
   const handleEditDraft = (draft: AppwriteDraft) => {
-    // Set the draft configuration and navigate to setup
-    setDraftConfig(draft.config)
-    navigate('/setup')
+    // Navigate to edit mode with draft ID
+    navigate(`/edit/${draft.$id}`)
   }
 
   const handleDeleteDraft = async (draftId: string) => {
@@ -115,7 +114,7 @@ export const MyDraftsPage: React.FC = () => {
         </div>
         
         <button
-          onClick={() => navigate('/setup')}
+          onClick={() => navigate('/create')}
           className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
         >
           <Plus className="h-4 w-4" />
@@ -135,7 +134,7 @@ export const MyDraftsPage: React.FC = () => {
           <h3 className="text-xl font-semibold text-gray-900 mb-2">No drafts yet</h3>
           <p className="text-gray-600 mb-6">Create your first fantasy football draft to get started</p>
           <button
-            onClick={() => navigate('/setup')}
+            onClick={() => navigate('/create')}
             className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
           >
             Create Your First Draft

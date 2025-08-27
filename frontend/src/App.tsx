@@ -9,11 +9,12 @@ import {
 } from './components'
 import { useDraftStore } from './store/draftStore'
 import { useAuthStore } from './store/authStore'
+import { DraftService } from './services/draftService'
 import { DraftConfig } from './store/draftStore'
 
 function App() {
-  const { initializeDraft } = useDraftStore()
-  const { isAuthenticated, getCurrentUser, isLoading, hasCheckedAuth } = useAuthStore()
+  const { initializeDraft, setDraftConfig } = useDraftStore()
+  const { isAuthenticated, getCurrentUser, isLoading, hasCheckedAuth, user } = useAuthStore()
   const navigate = useNavigate()
 
   // Check for existing session on app load
@@ -21,9 +22,39 @@ function App() {
     getCurrentUser()
   }, [getCurrentUser])
 
-  const handleStartDraft = (config: DraftConfig) => {
-    initializeDraft(config)
-    navigate('/draft')
+  const handleStartDraft = async (config: DraftConfig) => {
+    if (!user) {
+      console.error('No user found, cannot create draft')
+      return
+    }
+
+    try {
+      // Create the draft in the database first
+      const savedDraft = await DraftService.createDraft({
+        userId: user.$id,
+        draftName: config.leagueName,
+        config,
+        status: 'draft',
+        currentPick: 1,
+        currentRound: 1,
+        currentTeam: 1,
+        teams: [],
+        draftBoard: []
+      })
+
+      // Set the draft configuration in the store
+      setDraftConfig(config)
+      
+      // Initialize the draft in local state
+      initializeDraft(config)
+      
+      // Navigate to the draft board with the saved draft ID
+      navigate(`/draft/${savedDraft.$id}`)
+    } catch (error) {
+      console.error('Failed to create draft:', error)
+      // You might want to show an error toast here
+      alert('Failed to create draft. Please try again.')
+    }
   }
 
   // Show loading while checking authentication
@@ -51,7 +82,8 @@ function App() {
           <Route path="/" element={<MyDraftsPage />} />
           <Route path="/drafts" element={<MyDraftsPage />} />
           <Route path="/draft/:draftId" element={<SimpleDraftBoard />} />
-          <Route path="/setup" element={<DraftSetup onStartDraft={handleStartDraft} />} />
+          <Route path="/create" element={<DraftSetup onStartDraft={handleStartDraft} />} />
+          <Route path="/edit/:draftId" element={<DraftSetup onStartDraft={handleStartDraft} />} />
         </Routes>
       </main>
     </div>

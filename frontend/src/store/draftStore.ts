@@ -58,7 +58,6 @@ interface DraftStore {
   currentRound: number
   currentTeam: number
   isUserTurn: boolean
-  isDraftStarted: boolean
   
   // Teams and Players
   teams: Team[]
@@ -100,7 +99,6 @@ export const useDraftStore = create<DraftStore>()(
       currentRound: 1,
       currentTeam: 1,
       isUserTurn: false,
-      isDraftStarted: false,
       
       teams: [],
       allPlayers: [],
@@ -173,8 +171,7 @@ export const useDraftStore = create<DraftStore>()(
           currentPick: currentOverallPick,
           currentRound,
           currentTeam: currentTeamIndex + 1,
-          isUserTurn,
-          isDraftStarted: true
+          isUserTurn
         })
       },
       

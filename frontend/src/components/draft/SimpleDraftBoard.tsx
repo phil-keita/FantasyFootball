@@ -1,10 +1,12 @@
-import React, { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useDraftStore } from '../../store/draftStore'
+import React, { useEffect, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { useDraftStore, Player } from '../../store/draftStore'
 import { usePlayerData } from '../../hooks/useApi'
+import { DraftService } from '../../services/draftService'
 
 export const SimpleDraftBoard: React.FC = () => {
   const navigate = useNavigate()
+  const { draftId } = useParams<{ draftId: string }>()
   const store = useDraftStore()
   const {
     draftConfig,
@@ -16,6 +18,7 @@ export const SimpleDraftBoard: React.FC = () => {
     recommendations,
     isLoadingRecommendations,
     initializeDraft,
+    setDraftConfig,
     getRecommendations
   } = store
   
@@ -24,29 +27,100 @@ export const SimpleDraftBoard: React.FC = () => {
 
   const { isLoading: playersLoading, error: playersError, isBackendConnected } = usePlayerData()
 
-  useEffect(() => {
-    // Only initialize if there's no existing draft and no configuration
-    if (teams.length === 0 && !draftConfig) {
-      // Create a default configuration for backward compatibility
-      const defaultConfig = {
-        numberOfTeams: 12,
-        playerPickNumber: 1,
-        leagueSettings: {
-          qb: 1,
-          rb: 2,
-          wr: 2,
-          te: 1,
-          flex: 1,
-          def: 1,
-          k: 1,
-          bench: 6
-        },
-        customRules: 'Standard PPR league',
-        leagueName: 'Quick Draft'
-      }
-      initializeDraft(defaultConfig)
+  // Draft pick tracking logic
+  const userPickingOrder = draftConfig?.playerPickNumber || 1
+  const totalTeams = draftConfig?.numberOfTeams || 12
+  const currentPickIndex = currentPick - 1 // Convert to 0-based index
+  
+  // Calculate whose turn it is based on snake draft logic
+  const getCurrentPickingTeam = () => {
+    const round = Math.floor(currentPickIndex / totalTeams) + 1
+    const pickInRound = (currentPickIndex % totalTeams) + 1
+    
+    // Snake draft logic: odd rounds go 1->totalTeams, even rounds go totalTeams->1
+    if (round % 2 === 1) {
+      return pickInRound
+    } else {
+      return totalTeams - pickInRound + 1
     }
-  }, [teams.length, draftConfig, initializeDraft])
+  }
+  
+  const currentPickingTeam = getCurrentPickingTeam()
+  const isCurrentUserTurn = currentPickingTeam === userPickingOrder
+  const currentPickingTeamName = isCurrentUserTurn ? 'Your Team' : `Team ${currentPickingTeam}`
+
+  // State for player search in "Record Pick" section
+  const [otherTeamSearchQuery, setOtherTeamSearchQuery] = useState('')
+  const [otherTeamSelectedPlayer, setOtherTeamSelectedPlayer] = useState<Player | null>(null)
+  const [showOtherTeamDropdown, setShowOtherTeamDropdown] = useState(false)
+
+  // Filter available players for the "Record Pick" search
+  const filteredPlayersForOtherTeam = availablePlayers.filter(player => 
+    player.name.toLowerCase().includes(otherTeamSearchQuery.toLowerCase()) ||
+    player.team.toLowerCase().includes(otherTeamSearchQuery.toLowerCase())
+  ).slice(0, 10) // Limit to 10 results for performance
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (!target.closest('.player-search-container')) {
+        setShowOtherTeamDropdown(false)
+      }
+    }
+
+    if (showOtherTeamDropdown) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showOtherTeamDropdown])
+
+  useEffect(() => {
+    const loadDraft = async () => {
+      if (draftId) {
+        try {
+          // Load the specific draft from the database
+          const draft = await DraftService.getDraft(draftId)
+          
+          // Set the draft configuration in the store
+          setDraftConfig(draft.config)
+          
+          // Initialize the draft with the loaded data
+          initializeDraft(draft.config)
+          
+          // If draft status is still 'draft', update it to 'in-progress' when the board is loaded
+          if (draft.status === 'draft') {
+            await DraftService.updateDraft(draftId, { status: 'in-progress' })
+          }
+          
+          console.log('Draft loaded:', draft)
+        } catch (error) {
+          console.error('Failed to load draft:', error)
+          // Navigate back to drafts page if draft not found
+          navigate('/drafts')
+        }
+      } else {
+        // Only initialize if there's no existing draft and no configuration (backward compatibility)
+        if (teams.length === 0 && !draftConfig) {
+          // Create a default configuration for backward compatibility
+          const defaultConfig = {
+            numberOfTeams: 12,
+            playerPickNumber: 6,
+            leagueSettings: {
+              qb: 1, rb: 2, wr: 2, te: 1, flex: 1, def: 1, k: 1, bench: 6
+            },
+            customRules: '',
+            leagueName: 'Mock Draft'
+          }
+          
+          setDraftConfig(defaultConfig)
+          initializeDraft(defaultConfig)
+        }
+      }
+    }
+
+    loadDraft()
+  }, [draftId, teams.length, draftConfig, initializeDraft, setDraftConfig, navigate])
 
   if (playersLoading) {
     return (
@@ -87,7 +161,7 @@ export const SimpleDraftBoard: React.FC = () => {
             Please configure your draft settings before starting.
           </p>
           <button
-            onClick={() => navigate('/setup')}
+            onClick={() => navigate('/create')}
             className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-medium"
           >
             Go to Draft Setup
@@ -111,7 +185,7 @@ export const SimpleDraftBoard: React.FC = () => {
             {draftConfig?.numberOfTeams} teams • Your pick: #{draftConfig?.playerPickNumber}
           </p>
           <button
-            onClick={() => navigate('/setup')}
+            onClick={() => navigate(draftId ? `/edit/${draftId}` : '/create')}
             className="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1 rounded-lg transition-colors flex items-center space-x-1"
           >
             <span>⚙️</span>
@@ -158,6 +232,210 @@ export const SimpleDraftBoard: React.FC = () => {
             <p className="text-sm text-orange-700">
               / {Object.values(draftConfig?.leagueSettings || {}).reduce((a, b) => a + b, 0)} picks
             </p>
+          </div>
+        </div>
+
+        {/* Draft Pick Actions */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          {/* Record Other Team's Pick */}
+          <div className={`bg-white border-2 rounded-lg p-6 transition-all ${
+            isCurrentUserTurn ? 'border-gray-200 opacity-50' : 'border-blue-200 shadow-lg'
+          }`}>
+            <div className="flex items-center mb-4">
+              <span className="text-2xl mr-3">📝</span>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Record Pick</h3>
+                <p className="text-sm text-gray-600">
+                  {isCurrentUserTurn ? 'Disabled - It\'s your turn to pick' : `Enter ${currentPickingTeamName}'s selection`}
+                </p>
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="relative player-search-container">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Search Player
+                </label>
+                <input
+                  type="text"
+                  value={otherTeamSelectedPlayer ? otherTeamSelectedPlayer.name : otherTeamSearchQuery}
+                  onChange={(e) => {
+                    if (!otherTeamSelectedPlayer) {
+                      setOtherTeamSearchQuery(e.target.value)
+                      setShowOtherTeamDropdown(e.target.value.length > 0)
+                    }
+                  }}
+                  onFocus={() => {
+                    if (!otherTeamSelectedPlayer && otherTeamSearchQuery.length > 0) {
+                      setShowOtherTeamDropdown(true)
+                    }
+                  }}
+                  placeholder="Search by player name or team..."
+                  disabled={isCurrentUserTurn}
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                    isCurrentUserTurn ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white'
+                  }`}
+                />
+                
+                {/* Selected Player Display */}
+                {otherTeamSelectedPlayer && (
+                  <div className="absolute right-2 top-9 flex items-center">
+                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded mr-2">
+                      {otherTeamSelectedPlayer.position} - {otherTeamSelectedPlayer.team}
+                    </span>
+                    <button
+                      onClick={() => {
+                        setOtherTeamSelectedPlayer(null)
+                        setOtherTeamSearchQuery('')
+                        setShowOtherTeamDropdown(false)
+                      }}
+                      disabled={isCurrentUserTurn}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+
+                {/* Search Results Dropdown */}
+                {showOtherTeamDropdown && !otherTeamSelectedPlayer && !isCurrentUserTurn && (
+                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    {filteredPlayersForOtherTeam.length > 0 ? (
+                      filteredPlayersForOtherTeam.map((player) => (
+                        <button
+                          key={player.id}
+                          onClick={() => {
+                            setOtherTeamSelectedPlayer(player)
+                            setOtherTeamSearchQuery('')
+                            setShowOtherTeamDropdown(false)
+                          }}
+                          className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-gray-100 last:border-b-0"
+                        >
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <span className="font-medium">{player.name}</span>
+                              <span className="text-sm text-gray-500 ml-2">
+                                {player.position} - {player.team}
+                              </span>
+                            </div>
+                            {player.adp && (
+                              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+                                ADP: {Math.round(player.adp)}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="px-3 py-2 text-gray-500 text-sm">
+                        {otherTeamSearchQuery.length > 0 ? 'No players found' : 'Start typing to search...'}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <button
+                disabled={isCurrentUserTurn || !otherTeamSelectedPlayer}
+                className={`w-full py-2 px-4 rounded-lg font-medium transition-colors ${
+                  isCurrentUserTurn || !otherTeamSelectedPlayer
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                }`}
+                onClick={() => {
+                  if (otherTeamSelectedPlayer) {
+                    // TODO: Add logic to record the pick
+                    console.log('Recording pick:', otherTeamSelectedPlayer.name, 'for', currentPickingTeamName)
+                    setOtherTeamSelectedPlayer(null)
+                    setOtherTeamSearchQuery('')
+                  }
+                }}
+              >
+                Record {currentPickingTeamName}'s Pick
+                {otherTeamSelectedPlayer && (
+                  <span className="ml-2 text-blue-200">
+                    ({otherTeamSelectedPlayer.name})
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Make Your Pick */}
+          <div className={`bg-white border-2 rounded-lg p-6 transition-all ${
+            !isCurrentUserTurn ? 'border-gray-200 opacity-50' : 'border-green-200 shadow-lg bg-green-50'
+          }`}>
+            <div className="flex items-center mb-4">
+              <span className="text-2xl mr-3">🏈</span>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Make Your Pick</h3>
+                <p className="text-sm text-gray-600">
+                  {!isCurrentUserTurn ? 'Wait for your turn' : 'Select your player'}
+                </p>
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Search Available Players
+                </label>
+                <input
+                  type="text"
+                  placeholder="Search players..."
+                  disabled={!isCurrentUserTurn}
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 ${
+                    !isCurrentUserTurn ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white'
+                  }`}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Filter by Position
+                  </label>
+                  <select 
+                    disabled={!isCurrentUserTurn}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 ${
+                      !isCurrentUserTurn ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white'
+                    }`}
+                  >
+                    <option value="">All Positions</option>
+                    <option value="QB">QB</option>
+                    <option value="RB">RB</option>
+                    <option value="WR">WR</option>
+                    <option value="TE">TE</option>
+                    <option value="DEF">DEF</option>
+                    <option value="K">K</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Sort by
+                  </label>
+                  <select 
+                    disabled={!isCurrentUserTurn}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 ${
+                      !isCurrentUserTurn ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white'
+                    }`}
+                  >
+                    <option value="adp">ADP</option>
+                    <option value="projectedPoints">Projected Points</option>
+                    <option value="name">Name</option>
+                  </select>
+                </div>
+              </div>
+              <button
+                disabled={!isCurrentUserTurn}
+                className={`w-full py-2 px-4 rounded-lg font-medium transition-colors ${
+                  !isCurrentUserTurn 
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    : 'bg-green-600 text-white hover:bg-green-700'
+                }`}
+              >
+                Confirm My Pick
+              </button>
+            </div>
           </div>
         </div>
 
